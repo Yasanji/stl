@@ -100,7 +100,8 @@ type projection struct {
 	rawPK        []string // raw PK columns (raw names) — enqueued and joined back on
 	partition    string   // transformed partition column (block_timestamp / snapshot_time)
 	rawPartition string   // raw observation column (timestamp / synced_at / block_timestamp)
-	setColumns   []string // non-PK columns for the ON CONFLICT DO UPDATE SET / guard
+	columns      []string // all transformed columns, in SELECT emission order (filled, then raw)
+	setColumns   []string // non-PK columns (columns minus PK), in the same order
 }
 
 // plan resolves the register + raw schema into a projection.
@@ -130,6 +131,23 @@ func plan(reg *schemamaster.Register, schema RawSchema) (projection, error) {
 		return projection{}, err
 	}
 
+	// columns are the transformed output names in SELECT emission order: filled
+	// columns first (chain_id/protocol_id), then raw columns (renames applied).
+	columns := append([]string{}, filledCols...)
+	for _, c := range schema.sortedColumns() {
+		columns = append(columns, canonicalName(reg, schema.Table, c.Name))
+	}
+	pkSet := make(map[string]bool, len(pk))
+	for _, c := range pk {
+		pkSet[c] = true
+	}
+	var set []string
+	for _, c := range columns {
+		if !pkSet[c] {
+			set = append(set, c)
+		}
+	}
+
 	return projection{
 		table:        schema.Table,
 		selectExprs:  append(filledExprs, rawExprs...),
@@ -139,7 +157,8 @@ func plan(reg *schemamaster.Register, schema RawSchema) (projection, error) {
 		rawPK:        schema.PrimaryKey,
 		partition:    partition,
 		rawPartition: rawPart,
-		setColumns:   setColumns(reg, schema, filledCols),
+		columns:      columns,
+		setColumns:   set,
 	}, nil
 }
 
@@ -312,30 +331,6 @@ func rawObservationColumn(schema RawSchema) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no observation column (synced_at / timestamp / block_timestamp) for %q", schema.Table)
-}
-
-// setColumns is the non-PK column list (raw columns first in transformed emission
-// order, then filled columns), used for the ON CONFLICT DO UPDATE SET and guard.
-func setColumns(reg *schemamaster.Register, schema RawSchema, filledCols []string) []string {
-	pkSet := make(map[string]bool)
-	for _, c := range primaryKey(reg, schema) {
-		pkSet[c] = true
-	}
-	var out []string
-	for _, c := range schema.sortedColumns() {
-		name := canonicalName(reg, schema.Table, c.Name)
-		if pkSet[name] {
-			continue
-		}
-		out = append(out, name)
-	}
-	for _, c := range filledCols {
-		if pkSet[c] {
-			continue
-		}
-		out = append(out, c)
-	}
-	return out
 }
 
 // transformFor returns the transform for a table+column, if any.

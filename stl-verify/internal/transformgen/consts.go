@@ -81,7 +81,7 @@ UNION ALL
 SELECT 'offchain_token_price'::text AS source, count(*) AS pending, min(enqueued_at) AS oldest_enqueued_at FROM transformed."_pending_offchain_token_price";
 COMMENT ON VIEW transformed._queue_status IS '[Operational] Per-source pending-row count and oldest enqueue time across the transform change queues. oldest_enqueued_at lagging wall-clock = a stalled transform.';
 
--- Raw-vs-transformed parity backstop (checkpointed incremental, review N2).
+-- Raw-vs-transformed parity backstop (checkpointed incremental).
 -- A ledger holds a verified (raw, transformed, pending) count per source per
 -- raw-chunk time-range plus that chunk's pg_stat_all_tables activity baseline, so
 -- the worker does not full-count every table each tick. _parity_refresh re-counts

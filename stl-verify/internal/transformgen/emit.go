@@ -110,10 +110,10 @@ func tableBlock(reg *schemamaster.Register, schema RawSchema) (string, error) {
 	// 3. consume (queue drain) function.
 	inLeft := "(" + rawPKPfx + ")"
 	partPfx := qualify(p.sourceAlias, p.rawPartition)
-	fmt.Fprintf(&b, "CREATE OR REPLACE FUNCTION transformed._run_%s() RETURNS bigint AS $fn$\n"+
-		"DECLARE n bigint;\n"+
+	fmt.Fprintf(&b, "CREATE OR REPLACE FUNCTION transformed._run_%s() RETURNS TABLE(consumed bigint, upserted bigint) AS $fn$\n"+
 		"BEGIN\n"+
 		"  PERFORM pg_advisory_xact_lock(hashtextextended('transformed._run_%s', 0));\n"+
+		"  RETURN QUERY\n"+
 		"  WITH batch AS (\n"+
 		"    DELETE FROM %s\n"+
 		"    WHERE ctid IN (SELECT ctid FROM %s LIMIT 10000)\n"+
@@ -126,8 +126,7 @@ func tableBlock(reg *schemamaster.Register, schema RawSchema) (string, error) {
 		"  ON CONFLICT (%s) DO UPDATE SET %s\n"+
 		"    WHERE %s IS DISTINCT FROM %s\n"+
 		"  RETURNING 1)\n"+
-		"  SELECT count(*) INTO n FROM batch;\n"+
-		"  RETURN n;\n"+
+		"  SELECT (SELECT count(*) FROM batch), (SELECT count(*) FROM ins);\n"+
 		"END $fn$ LANGUAGE plpgsql;\n",
 		p.table, p.table, pend, pend, rawPKList,
 		tbl, quoteList(p.columns), sel, from,
